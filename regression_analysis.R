@@ -43,6 +43,8 @@ for (i in seq_along(input_files)) {
 	for (j in unique_scans) {
 		idx_rows <- scans[scans == j] %>% names() %>% as.integer()
 		subX[[as.character(j)]] <- X[idx_rows, ]
+		idx_nonzero_cols <- colSums(subX[[as.character(j)]]) > 0
+		subX[[as.character(j)]] <- subX[[as.character(j)]][, idx_nonzero_cols]
 		subY[[as.character(j)]] <- Y[idx_rows, , drop = FALSE]
 		sub_binbounds[[as.character(j)]] <- binbounds[rownames(binbounds) %in% idx_rows, ]
 	}
@@ -53,7 +55,7 @@ for (i in seq_along(input_files)) {
 }
 
 mdl_list <- map2(subX_list, subY_list,
-				 ~glmnet::cv.glmnet(x = .x, y = .y, intercept = FALSE, lower.limits = 0))
+				 ~glmnet::cv.glmnet(x = .x, y = .y, intercept = FALSE, lower.limits = 0, alpha = 0.5))
 
 coef_list <- map2(mdl_list, subX_list, ~predict(.x, .y, s ="lambda.min", type = "coef")) %>%
 	map(as.vector) %>%
@@ -61,8 +63,10 @@ coef_list <- map2(mdl_list, subX_list, ~predict(.x, .y, s ="lambda.min", type = 
 
 output_mats <- map2(subX_list, coef_list, ~ t(apply(.x, 1, function(x) x * .y)))
 
-save(subX_list, subY_list, sub_binbounds_list, coef_list, output_mats,
-	 file = "regression_outputs.RData")
+subX_sparse_list <- map(subX_list, Matrix::Matrix, sparse = TRUE)
+output_mats_sparse <- map(output_mats, Matrix::Matrix, sparse = TRUE)
+save(subX_sparse_list, subY_list, sub_binbounds_list, coef_list, output_mats_sparse,
+	 file = "elnet_outputs.RData")
 
 
 # generate user friendly outputs ------------------------------------------

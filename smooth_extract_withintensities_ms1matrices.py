@@ -91,46 +91,46 @@ if True:
 	header = fin.readline()
 	fout.write( header.replace('\n','\tpeak scans\tpeak intensities\tdecoy peak scans\tdecoy peak intensities\n') )	
 	p = 0
-	for line in fin:	
+	for line in fin:
 		# Output the targets
 		maxes = maxima[p]
-		fout.write( line.rstrip()  + '\t' )
+		fout.write(line.rstrip() + '\t')
 		if len(maxes) > 0:
-			maxes.sort( key = lambda m: m[1], reverse=True )
+			maxes.sort(key=lambda m: m[1], reverse=True)
 			# Output peak times
-			fout.write( str(maxes[0][0]) )
+			fout.write(str(maxes[0][0]))
 			numpeaks += 1
-			end = int(lens[p]/4)
+			end = int(lens[p] / 4)
 			ends.append(end)
-			for (snum,i) in maxes[1:end]:
-				fout.write(','+str(snum) )
+			for (snum, i) in maxes[1:end]:
+				fout.write(',' + str(snum))
 				numpeaks += 1
-			# Output peak intensities
-		fout.write( '\t')
+		# Output peak intensities
+		fout.write('\t')
 		if len(maxes) > 0:
-			fout.write(str(maxes[0][1]) )
-			for (snum,i) in maxes[1:end]:
-				fout.write(','+str(i) )
+			fout.write(str(maxes[0][1]))
+			for (snum, i) in maxes[1:end]:
+				fout.write(',' + str(i))
 
 		# Now output the decoys
 		fout.write('\t')
-		maxes = maxima[p+Ptargets]
+		maxes = maxima[p + Ptargets]
 		if len(maxes) > 0:
-			maxes.sort( key = lambda m: m[1], reverse=True )
+			maxes.sort(key=lambda m: m[1], reverse=True)
 			# Output peak times
-			fout.write( str(maxes[0][0]) )
+			fout.write(str(maxes[0][0]))
 			numpeaks += 1
-			end = int(lens[p]/4)
+			end = int(lens[p] / 4)
 			ends.append(end)
-			for (snum,i) in maxes[1:end]:
-				fout.write(','+str(snum) )
+			for (snum, i) in maxes[1:end]:
+				fout.write(',' + str(snum))
 				numpeaks += 1
-		fout.write( '\t')
+		fout.write('\t')
 		if len(maxes) > 0:
-			fout.write(str(maxes[0][1]) )
-			for (snum,i) in maxes[1:end]:
-				fout.write(','+str(i) )
-		fout.write('\n')	
+			fout.write(str(maxes[0][1]))
+			for (snum, i) in maxes[1:end]:
+				fout.write(',' + str(i))
+		fout.write('\n')
 		p += 1
 	fin.close()
 	fout.close()
