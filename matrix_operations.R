@@ -1,3 +1,6 @@
+# This function converts regular matrices to siren sparse format. When S is TRUE, a "S" character
+# would be written at the first line. To understand the meaning of this, one should consult siren's
+# documentation
 regular_to_sparse <- function(mat, S = FALSE) {
 	mat <- unname(mat)
 	m <- nrow(mat)
@@ -11,7 +14,9 @@ regular_to_sparse <- function(mat, S = FALSE) {
 
 	sp <- purrr::map(apply(mat, 1, list), 1)
 	idx_nonzero <- purrr::map(sp, ~ which(.x != 0))
+	# idx_valid determines which rows have at least one nonzero element
 	idx_valid <- purrr::map_lgl(idx_nonzero, ~length(.x) > 0)
+	# This is intended to convert R's indices to python's indices
 	idx_valid_int <- which(idx_valid) - 1
 	sp <- purrr::map2(idx_nonzero[idx_valid], sp[idx_valid], ~paste0(.x - 1, "\t", .y[.x])) %>%
 		purrr::map2(idx_valid_int, ~ list(paste(">", .y, sep = "\t"), .x))
@@ -20,7 +25,9 @@ regular_to_sparse <- function(mat, S = FALSE) {
 	c(paste0(m, "\t", n), sp)
 }
 
+# This function converts siren sparse format to regular matrices.
 sparse_to_regular <- function(sp) {
+	# The first line is information about the size and type of the matrix
 	m_n_S <- stringr::str_split(sp[1], "\t")[[1]]
 	m_n <- as.integer(m_n_S[1:2])
 	sp <- sp[-1]
@@ -66,6 +73,7 @@ sparse_to_regular <- function(sp) {
 	return(mat)
 }
 
+# This function returns a vector which determines the scan number for each row of a sparse matrix
 get_scannum <- function(sp) {
 	new_row_raw <- stringr::str_subset(sp, "^>") %>%
 		stringr::str_split("\t")
@@ -78,6 +86,7 @@ get_scannum <- function(sp) {
 	return(scan_num)
 }
 
+# This function returns the binbounds for each row of a sparse matrix
 get_binbounds <- function(sp) {
 	new_row_raw <- stringr::str_subset(sp, "^>") %>%
 		stringr::str_split("\t")
@@ -94,6 +103,7 @@ get_binbounds <- function(sp) {
 	return(binbounds)
 }
 
+# This function gives the range of nonzoro columns for each row.
 get_row_col_ranges <- function(sp) {
 	idx_new_row <- which(str_detect(sp, "^>"))
 	idx_first_col <- idx_new_row + 1
@@ -117,6 +127,7 @@ get_row_col_ranges <- function(sp) {
 	return(col_ranges)
 }
 
+# This function gives the range of nonzero columns for each scan
 get_scan_nonzero_col_ranges <- function(sp) {
 	row_col_ranges <- get_row_col_ranges(sp)
 	first_cols <- row_col_ranges[, 1]

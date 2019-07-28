@@ -3,6 +3,16 @@ args <- commandArgs(trailingOnly = TRUE)
 library(magrittr)
 source("matrix_operations.R")
 
+# glmnet_ols aims to calculate OLS with positive coefficients constraint. In order
+# to achive this, I used lasso with lambda parameter equal to 0
+glmnet_ols <- function(xfile, yfile) {
+	X <- sparse_to_regular(readLines(xfile))
+	Y <- sparse_to_regular(readLines(yfile))
+	mdl <- glmnet::glmnet(X, Y, lambda = 0, standardize = TRUE, lower.limits = 0, thresh = 1e-3, intercept = FALSE)
+	as.matrix(mdl$beta) %>%
+		regular_to_sparse()
+}
+
 # ydir <- "15b_ms1_sparsebinned_singlescans_tannotated/"
 # outdir <- "15b_peptide_abundances/"
 ydir <- args[1L]
