@@ -13,3 +13,36 @@ This repo is a concise version of Siren. Specifically, all the files in the C++ 
 * **15b_peptide_abundances:** this folder contains the results regarding combining OLS regression coefficients, building a combined B matrix, smoothing and Lasso regression
 * **15b_precursorprofiles.txt:** this is the final elution profiles extracted by Siren
 * **15b_scannums.txt:** real scan numbers
+
+### Detailed description of pipeline execution
+
+1. Install python2, numpy, scipy, sklearn
+    * "sudo apt update"
+    * "sudo apt upgrade"
+    * "sudo apt install python2.7 python-pip"
+    * "pip install numpy"
+    * "pip install scipy"
+    * "pip install sklearn"
+
+2. clone the git repo
+
+3. In the python session execute the following lines one by one (these are contents of siren.py)
+    * import os
+    * import sys
+    * ms1file = "name of .ms1 file"
+    * os.system('python generate_theoretical_features_from_ms1_combine_individual.py ' + ms1file )
+    * ms1dir = ms1file.replace('.ms1','_ms1_sparsebinned_singlescans_tannotated/')
+    * os.system('python make_siren_decoys.py ' + ms1dir )
+    * os.system('python align_ms1_annotations_individual.py ' + ms1dir )
+    * bdir = ms1dir.replace('_ms1_sparsebinned_singlescans_tannotated/','_peptide_abundances/')
+    * In order to use original Siren OLS: os.system('python regression_justms1_sparse_job_sgd.py ' + ms1dir + ' ' + bdir )
+    * In order to use R and glmnet OLS:
+    * alignmentfile = ms1dir + 'joint_annfile_minlen4.txt'
+    * os.system('python combine_ms1_matrices_from_alignment_individual.py ' + ms1dir + ' ' + alignmentfile + ' ' + bdir)
+    * bfile = bdir+'combined_B_sp0.txt'
+    * os.system('python smooth_extract_withintensities_ms1matrices.py ' + bfile + ' 4 ' + alignmentfile) 
+    * intensitiesfile =  bfile.replace('.txt','_intensities_annfile.txt')
+    * os.system('python compute_paths_job.py ' + ms1dir + ' ' + bdir )
+    * os.system('python add_alphas_withintensities_to_annotations.py ' + ms1dir + ' ' + intensitiesfile + ' ' + bdir) 
+    * alphaannfile = intensitiesfile.replace('.txt','_alphas_withintensities.txt')
+    * os.system('python extract_profiles_for_diaumpire.py ' + bfile + ' ' + alphaannfile + ' ' + ms1file)
