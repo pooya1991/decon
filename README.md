@@ -32,11 +32,11 @@ This repo is a concise version of Siren. Specifically, all the files in the C++ 
     * ms1file = "name of .ms1 file"
     * os.system('python generate_theoretical_features_from_ms1_combine_individual.py ' + ms1file )
     * ms1dir = ms1file.replace('.ms1','_ms1_sparsebinned_singlescans_tannotated/')
-    * os.system('python make_siren_decoys.py ' + ms1dir )
-    * os.system('python align_ms1_annotations_individual.py ' + ms1dir )
+    * os.system('python make_siren_decoys.py ' + ms1dir)
+    * os.system('python align_ms1_annotations_individual.py ' + ms1dir)
     * bdir = ms1dir.replace('_ms1_sparsebinned_singlescans_tannotated/','_peptide_abundances/')
     * In order to use original Siren OLS: os.system('python regression_justms1_sparse_job_sgd.py ' + ms1dir + ' ' + bdir )
-    * In order to use R and glmnet OLS:
+    * In order to use R and glmnet OLS: os.system('./regression_justms1_sparse_job_sgd.R ' + ms1dir + ' ' + bdir)
     * alignmentfile = ms1dir + 'joint_annfile_minlen4.txt'
     * os.system('python combine_ms1_matrices_from_alignment_individual.py ' + ms1dir + ' ' + alignmentfile + ' ' + bdir)
     * bfile = bdir+'combined_B_sp0.txt'
