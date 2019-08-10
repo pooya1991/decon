@@ -2,6 +2,7 @@ execfile('read_rowmajor_matrix.py')
 execfile('peakclusterforbinning.py')
 execfile('make_averagine_models.py')
 
+mass_accuracy = 6e-06
 def get_ix(n):
 	return -1*n-1
 def get_n(ix):
@@ -145,7 +146,7 @@ if True:
 	tol = 0.005
 	print 'Deleting unduplicated peaks'
 	justpeaks = [ peaklist[t][1] for t in range(len(peaklist)) ]	
-	justpeaks =  delete_unduplicated_peaklist( justpeaks, tol ) 
+	justpeaks =  delete_unduplicated_peaklist( justpeaks, tol )
 
 # Here, see how many clusters you get if you combine consecutive scans into blocks rather
 # and cluster the combined peaks rather than cluster the peaks scan by scan
@@ -185,7 +186,7 @@ while t < len(justpeaks):
 			continue
 	
 		tol = 0.01
-		(clusts, cixes ) = peaklist_to_clusters( blockpeaks, tol ) 
+		(clusts, cixes ) = peaklist_to_clusters( blockpeaks, mass_accuracy)
 
 		if toprint:
 			print 'num clusters: ' + str(len(clusts)) + ' ' + str( float(len(clusts))/len(blockpeaks) )
@@ -209,9 +210,9 @@ while t < len(justpeaks):
 			for c in xrange(maxcharge,0,-1):
 				# There must be a peakcluster that matches isop
 				# where isop is the second isotopic peak
-				isop = peakcluster( p.minmz + 1.0/c, p.maxmz + 1.0/c, 0, 0 )
+				isop = peakcluster(p.minmz + 1.003355/c, p.maxmz + 1.003355/c, 0, 0)
 				while n2 < N:
-					compare = compare_clusters( clusts[n2], isop, tol )
+					compare = compare_clusters(clusts[n2], isop, mass_accuracy)
 					#print '-n2: ' + str(n2) + ' comp: ' + str(compare)
 					if compare > 0:
 						n2 += 1
@@ -219,7 +220,7 @@ while t < len(justpeaks):
 						break
 					# There is a match! Make this feature and add it to a list somehow
 					if compare == 0:
-						features.append( (n,c, p.minmz-tol, p.maxmz+tol) )
+						features.append((n, c, p.minmz * (1 - mass_accuracy), p.maxmz * (1 + mass_accuracy)))
 						#print ('-added ' + str(c) )
 						break
 
@@ -235,8 +236,8 @@ while t < len(justpeaks):
 		peakclusters = clusts
 		fn = 0
 		for (n,charge,mz1,mz2) in features:
-			mz1s = [ mz1+i*1.0/charge for i in range(0,7) ]
-			mz2s = [ mz2+i*1.0/charge for i in range(0,7) ]
+			mz1s = [ mz1+i*1.003355/charge for i in range(0,7) ]
+			mz2s = [ mz2+i*1.003355/charge for i in range(0,7) ]
 
 			ipeaks = isopeaks[fn]
 			#for i in range(0,len(mz1s)):

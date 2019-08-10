@@ -176,16 +176,9 @@ class peakcluster:
 	def pfile(self, fout, minlen = 2 ):
 		fout.write(str(self.minmz)+'\t'+str(self.maxmz)+'\n')
 
-def compare_clusters( a, b, tol ):
-	if a.maxmz+tol < b.minmz:
-		return 1 # b is greater than a
-	if b.maxmz+tol < a.minmz:
-		return -1 # b is less than a
-	return 0 # they overlap
-
 # peaklist_to_peakclusters
 # Each element in peaklist is a tuple: (mz, intensity, scannum) 
-def peaklist_to_clusters( peaklist, tol = 0.005  ):
+def peaklist_to_clusters( peaklist, mass_accuracy):
 	peaklist.sort(key=lambda p: p[0])
 	clusters = []
 	mz = peaklist[0][0]
@@ -196,20 +189,20 @@ def peaklist_to_clusters( peaklist, tol = 0.005  ):
 	cids = [0]*len(peaklist)
 	ix = 1
 	for (mz,intensity,realt) in peaklist[1:]:
-		if clusters[-1].maxmz > (mz-tol):
+		if clusters[-1].maxmz >= (mz * (1 - mass_accuracy)):
 			clusters[-1].maxmz = mz
 			cids[ix] = cids[ix-1]
-			clusters[-1].peaks.append( (realt, intensity) )
+			clusters[-1].peaks.append((realt, intensity))
 		else:
-			clusters.append( peakcluster( mz, mz, realt, intensity) )	# FIXME		
+			clusters.append(peakcluster(mz, mz, realt, intensity))	# FIXME
 			cids[ix] = cids[ix-1]+1
 		ix += 1
-	return (clusters,cids)
+	return (clusters, cids)
 
-def compare_clusters( a, b, tol ):
-	if a.maxmz+tol < b.minmz:
+def compare_clusters( a, b, mass_accuracy):
+	if a.maxmz * (1 + mass_accuracy) < b.minmz:
 		return 1 # b is greater than a
-	if b.maxmz+tol < a.minmz:
+	if b.maxmz * (1 + mass_accuracy) < a.minmz:
 		return -1 # b is less than a
 	return 0 # they overlap
 
