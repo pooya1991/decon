@@ -1,3 +1,4 @@
+library(tidyverse)
 source("matrix_operations.R")
 
 # set parameters ----------------------------------------------------------
@@ -62,6 +63,7 @@ for (i in seq_along(input_files)) {
 	sub_features_list <- c(sub_features_list, sub_features)
 }
 
+sub_features_list <- map(sub_features_list, ~mutate(.x, meanmz = ((minmz + maxmz) / 2)))
 sub_features_list <- map2(
 	sub_features_list, subX_list,
 	~add_column(.x, isop_pattern = apply(.y, 2,
@@ -69,18 +71,18 @@ sub_features_list <- map2(
 	)
 )
 
-coefs_list <- vector("list", length(subX_list))
+# clustering --------------------------------------------------------------
+
+clustering_info_list <- vector("list", length(subX_list))
 for (i in seq_along(subX_list)) {
 	X <- subX_list[[i]]
 	Y <- subY_list[[i]]
 	binbounds <- sub_binbounds_list[[i]]
-
 	mzbins <- rowMeans(binbounds)
 	idx_nonzero_y <- Y[, 1] > 0
 	Y <- Y[idx_nonzero_y, , drop = FALSE]
 	X <- X[idx_nonzero_y, ]
 	mzbins <- mzbins[idx_nonzero_y]
-	rownames(Y) <-  mzbins
 
 	X_df <- as_tibble(X) %>%
 		mutate(mzbin = mzbins) %>%
@@ -108,23 +110,41 @@ for (i in seq_along(subX_list)) {
 
 	ceb <- igraph::cluster_edge_betweenness(g)
 
-	feature_cluster <- stack(ceb) %>%
+	clustering_info <- stack(ceb) %>%
 		rename(feature = values, cluster = ind) %>%
-		mutate(feature = as.integer(feature))
+		mutate(feature = as.integer(feature)) %>%
+		right_join(X_df, "feature") %>%
+		select(mzbin, feature, cluster) %>%
+		as_tibble()
 
-	multi_clusters <- feature_cluster %>%
+	clustering_info_list[[i]] <- clustering_info
+}
+
+# regression --------------------------------------------------------------
+
+coefs_list <- vector("list", length(subX_list))
+for (i in seq_along(subX_list)) {
+	X <- subX_list[[i]]
+	Y <- subY_list[[i]]
+	binbounds <- sub_binbounds_list[[i]]
+	mzbins <- rowMeans(binbounds)
+	idx_nonzero_y <- Y[, 1] > 0
+	Y <- Y[idx_nonzero_y, , drop = FALSE]
+	X <- X[idx_nonzero_y, ]
+	mzbins <- mzbins[idx_nonzero_y]
+
+	clustering_info <- clustering_info_list[[i]]
+	valid_clusters <- clustering_info %>%
+		select(feature, cluster) %>%
+		distinct() %>%
 		group_by(cluster) %>%
 		summarise(n_features= n()) %>%
 		filter(n_features > 1) %>%
 		pull(cluster) %>% as.integer()
 
-	mzbin_cluster <- X_df %>%
-		left_join(feature_cluster, "feature") %>%
-		select(mzbin, feature, cluster)
-
 	coefs <- vector("numeric", length = ncol(X))
-	for (clust in multi_clusters) {
-		idx_col <- filter(mzbin_cluster, cluster == clust) %>% pull(feature) %>% unique()
+	for (clust in valid_clusters) {
+		idx_col <- filter(clustering_info, cluster == clust) %>% pull(feature) %>% unique()
 		idx_row <- rowSums(X[, idx_col, drop = FALSE]) > 0
 		Xc <- X[idx_row, idx_col, drop = FALSE]
 		Yc <- Y[idx_row, ,drop = FALSE]
@@ -134,6 +154,9 @@ for (i in seq_along(subX_list)) {
 		mdl_cv_wt <- glmnet::cv.glmnet(Xc, Yc, intercept = TRUE, lower.limits = 0,
 									   nfolds = nrow(Xc), grouped = FALSE,
 									   weights = 1 / (10 + drop(Yc)))
+
+		mdl_cv_log <- glmnet::cv.glmnet(Xc, log(Yc + 1), intercept = TRUE, lower.limits = 0,
+										nfolds = nrow(Xc), grouped = FALSE)
 
 		idx_col_sub <- predict(mdl_cv_wt, type = "coef", s = "lambda.min") %>%
 			as.vector() %>% (function(x) which(x[-1] > 0))
@@ -145,22 +168,134 @@ for (i in seq_along(subX_list)) {
 		coefs_sub <- predict(mdl, type = "coef") %>% as.vector() %>% .[-1]
 		coefs[idx_col[idx_col_sub]] <- coefs_sub
 	}
-
 	coefs_list[[i]] <- coefs
 }
 
 sub_features_list <- map2(sub_features_list, coefs_list,
-	 ~add_column(.x, peak = .y))
+						  ~add_column(.x, coef = .y))
 
-sub_features_list <- map(sub_features_list, filter, peak > 0) %>%
-	map(~ mutate(.x, scan_peak = map2(scan, peak, ~list(c(.x, .y))))) %>%
-	map(select, minmz, maxmz, charge, isop_pattern, scan_peak)
+# regression results presentation -----------------------------------------
+
+for (i in seq_along(subX_list)) {
+	X <- subX_list[[i]]
+	Y <- subY_list[[i]]
+	binbounds <- sub_binbounds_list[[i]]
+	mzbins <- rowMeans(binbounds)
+	idx_nonzero_y <- Y[, 1] > 0
+	Y <- Y[idx_nonzero_y, , drop = FALSE]
+	X <- X[idx_nonzero_y, ]
+	mzbins <- mzbins[idx_nonzero_y]
+	features_info <- sub_features_list[[i]] %>%
+		select(meanmz, charge, coef) %>%
+		mutate(feature = row_number())
+
+	clustering_info <- clustering_info_list[[i]] %>%
+		filter(mzbin %in% mzbins)
+
+	valid_clusters <- clustering_info %>%
+		select(feature, cluster) %>%
+		distinct() %>%
+		group_by(cluster) %>%
+		summarise(n_features= n()) %>%
+		filter(n_features > 1) %>%
+		pull(cluster) %>% as.integer()
+
+	feature_cluster <- select(clustering_info, feature, cluster) %>%
+		distinct()
+
+	coefs <- coefs_list[[i]]
+	Y_hat <- X %*% matrix(coefs, ncol = 1)
+	act_pred <- cbind(mzbins, Y, Y_hat)
+	deconv_mat <- apply(X, 1, "*", coefs) %>% t()
+	deconv_long <- as_tibble(deconv_mat) %>%
+		mutate(mzbin = mzbins) %>%
+		gather(feature, intensity, -mzbin) %>%
+		filter(intensity > 0) %>%
+		mutate(feature = str_remove(feature, "^V") %>% as.integer()) %>%
+		left_join(feature_cluster, "feature")
+
+	for (clust in valid_clusters) {
+		mzbins_sub <- clustering_info %>%
+			filter(cluster == clust) %>% pull(mzbin) %>% unique()
+
+		deconv_long_sub <- deconv_long %>%
+			filter(cluster == clust)
+
+		if (length(mzbins_sub) == 0) next()
+		act_pred_sub <- act_pred[act_pred[, 1] %in% mzbins_sub, ]
+		rmse_sub <- Metrics::rmse(act_pred_sub[ ,2], act_pred_sub[, 3])
+		mape_sub <- Metrics::mape(act_pred_sub[ ,2], act_pred_sub[, 3])
+		perc_err = ((act_pred_sub[, 2] - act_pred_sub[, 3]) / act_pred_sub[, 2]) * 100
+
+		legend_data <- features_info %>%
+			left_join(feature_cluster, "feature") %>%
+			filter(cluster == clust) %>%
+			select(feature, meanmz, charge) %>% distinct()
+
+		fake_data <-tibble(mzbin = mzbins_sub,
+						   feature = deconv_long_sub$feature[1], intensity = 0)
+
+		ylim = c(0,  max(act_pred_sub[, -1]))
+		label <- tibble(
+			mzbin = Inf,
+			intensity = Inf,
+			label = paste0("scan = ", i - 1, " cluster = ", clust)
+		)
+
+		p1 <- tibble(mzbin = act_pred_sub[, 1], intensity = act_pred_sub[, 2], perc_err = perc_err) %>%
+			ggplot(aes(mzbin, intensity)) +
+			geom_col() +
+			geom_text(aes(label = paste0(round(perc_err, 1), "%")), vjust = -0.3, size = 1.5) +
+			geom_text(aes(label = label), data = label, vjust = "top", hjust = "right") +
+			coord_cartesian(ylim = ylim, expand = TRUE) +
+			labs(title = "Actual")
+
+		label <- tibble(
+			mzbin = Inf,
+			intensity = Inf,
+			label = paste0("RMSE = ", round(rmse_sub), "\nMAPE = ", round(mape_sub, 3))
+		)
+
+		p2 <- deconv_long_sub %>%
+			select(mzbin, feature, intensity) %>%
+			bind_rows(fake_data) %>%
+			group_by(mzbin, feature) %>%
+			summarise(intensity = sum(intensity)) %>%
+			filter(!is.na(feature)) %>%
+			ggplot(aes(mzbin, intensity)) +
+			geom_col(aes(fill = factor(feature))) +
+			labs(fill = "Feature", title = "Predicted", y = NULL) +
+			geom_text(aes(label = label), data = label, vjust = "top", hjust = "right") +
+			scale_fill_discrete(
+				breaks = legend_data$feature,
+				labels = pmap(legend_data, paste, sep = ":")
+			) +
+			coord_cartesian(ylim = ylim, expand = TRUE) +
+			theme(legend.title = element_text(size = 8),
+				  legend.text = element_text(size = 8),
+				  axis.ticks.y = element_blank(),
+				  axis.title.y = element_blank(),
+				  axis.text.y = element_blank())
+
+		p <- egg::ggarrange(p1, p2, nrow = 1)
+		plot_name <- paste0(i - 1, "_", clust, ".png")
+		ggsave(plot_name, p, width = 20, height = 10, units = "cm")
+		# browser()
+	}
+}
+
+# feature construction ----------------------------------------------------
+
+sub_features_list <- map(sub_features_list, filter, coef > 0) %>%
+	map(~ mutate(.x, peak = map2(scan, coef, ~list(c(.x, .y))))) %>%
+	map(select, minmz, maxmz, meanmz, charge, isop_pattern, peak)
 
 features <- sub_features_list %>%
-	map(~ mutate(.x, meanmz = ((minmz + maxmz) / 2))) %>%
-	map(select, meanmz, charge, isop_pattern, scan_peak) %>%
+	map(select, meanmz, charge, isop_pattern, peak) %>%
 	bind_rows() %>%
 	pmap(list)
+
+# feature alignment -------------------------------------------------------
 
 features_aligned <- features[1]
 for (feature_curr in features[-1]) {
@@ -172,7 +307,7 @@ for (feature_curr in features[-1]) {
 			between(feature_curr$meanmz, feature$meanmz * (1 - mass_accuracy), feature$meanmz * (1 + mass_accuracy)) &&
 			identical(feature_curr$isop_pattern, feature$isop_pattern)
 		) {
-			feature$scan_peak <- c(feature$scan_peak, feature_curr$scan_peak)
+			feature$peak <- c(feature$peak, feature_curr$peak)
 			add_new <- FALSE
 		}
 		features_aligned[[i]] <- feature
@@ -181,7 +316,9 @@ for (feature_curr in features[-1]) {
 	if (add_new) features_aligned <- c(features_aligned, list(feature_curr))
 }
 
-idx <-  map_int(features_aligned, ~length(.x$scan_peak)) %>%
+# profile extraction ------------------------------------------------------
+
+idx <-  map_int(features_aligned, ~length(.x$peak)) %>%
 	(function(x) x > 5)
 
 features_aligned2 <- features_aligned[idx]
@@ -192,7 +329,7 @@ features_aligned2 <- features_aligned2[idx_ord]
 
 profiles_mat <- matrix(NA_real_, ncol = length(features_aligned2), nrow = length(subX_list))
 for (i in seq_along(features_aligned2)) {
-	peaks <- features_aligned2[[i]][["scan_peak"]]
+	peaks <- features_aligned2[[i]][["peak"]]
 	for (peak in peaks) {
 		profiles_mat[as.integer(peak[1]) + 1, i] <- peak[2]
 	}
