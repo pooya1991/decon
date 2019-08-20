@@ -124,11 +124,13 @@ for (i in seq_along(subX_list)) {
 # regression --------------------------------------------------------------
 
 coefs_list <- vector("list", length(subX_list))
+coefs2_list <- vector("list", length(subX_list))
 for (i in seq_along(subX_list)) {
 	X <- subX_list[[i]]
 	Y <- subY_list[[i]]
 	clustering_info <- clustering_info_list[[i]]
 	coefs <- regressor(X, Y, clustering_info)
+	coefs2_list[[i]] <- coefs2
 	coefs_list[[i]] <- coefs
 }
 
@@ -138,6 +140,7 @@ sub_features_list <- map2(sub_features_list, coefs_list,
 # regression results presentation -----------------------------------------
 
 if (!dir.exists("./regression_plots")) dir.create("./regression_plots")
+drop_zero_rows <- TRUE
 for (i in seq_along(subX_list)) {
 	X <- subX_list[[i]]
 	Y <- subY_list[[i]]
@@ -154,23 +157,25 @@ for (i in seq_along(subX_list)) {
 	clustering_info <- clustering_info_list[[i]] %>%
 		filter(mzbin %in% mzbins)
 
-	valid_clusters <- clustering_info %>%
-		select(feature, cluster) %>%
-		distinct() %>%
-		group_by(cluster) %>%
-		summarise(n_features= n()) %>%
-		filter(n_features > 1) %>%
-		pull(cluster) %>% as.integer()
+	feature_cluster <- distinct(clustering_info[c("feature", "cluster")])
 
-	feature_cluster <- select(clustering_info, feature, cluster) %>%
-		distinct()
+	valid_clusters <- feature_cluster %>%
+		count(cluster) %>%
+		filter(n > 1) %>% pull(cluster) %>% as.integer()
 
 	coefs <- coefs_list[[i]]
 	Y_hat <- X %*% matrix(coefs, ncol = 1)
 	act_pred <- cbind(mzbins, Y, Y_hat)
 	deconv_mat <- apply(X, 1, "*", coefs) %>% t()
+
+	if (drop_zero_rows) {
+		idx_nonzero_y_hat <- Y_hat[, 1] > 0
+		act_pred <- act_pred[idx_nonzero_y_hat, ]
+		deconv_mat <- deconv_mat[idx_nonzero_y_hat, ]
+	}
+
 	deconv_long <- as_tibble(deconv_mat) %>%
-		mutate(mzbin = mzbins) %>%
+		mutate(mzbin = act_pred[, 1]) %>%
 		gather(feature, intensity, -mzbin) %>%
 		filter(intensity > 0) %>%
 		mutate(feature = str_remove(feature, "^V") %>% as.integer()) %>%
@@ -178,7 +183,7 @@ for (i in seq_along(subX_list)) {
 
 	for (clust in valid_clusters) {
 		mzbins_sub <- clustering_info %>%
-			filter(cluster == clust) %>% pull(mzbin) %>% unique()
+			filter(cluster == clust) %>% pull(mzbin) %>% intersect(act_pred[, 1])
 
 		deconv_long_sub <- deconv_long %>%
 			filter(cluster == clust)
@@ -189,13 +194,17 @@ for (i in seq_along(subX_list)) {
 		mape_sub <- Metrics::mape(act_pred_sub[ ,2], act_pred_sub[, 3])
 		perc_err = ((act_pred_sub[, 2] - act_pred_sub[, 3]) / act_pred_sub[, 2]) * 100
 
-		legend_data <- features_info %>%
-			left_join(feature_cluster, "feature") %>%
-			filter(cluster == clust) %>%
-			select(feature, meanmz, charge) %>% distinct()
+		# legend_data <- features_info %>%
+		# 	left_join(feature_cluster, "feature") %>%
+		# 	filter(cluster == clust) %>%
+		# 	select(feature, meanmz, charge) %>% distinct()
+
+		legend_data <- filter(features_info, feature %in% unique(deconv_long_sub$feature)) %>%
+			select(feature, meanmz, charge)
 
 		fake_data <-tibble(mzbin = mzbins_sub,
-						   feature = deconv_long_sub$feature[1], intensity = 0)
+						   feature = deconv_long_sub$feature[1],
+						   intensity = 0)
 
 		ylim = c(0,  max(act_pred_sub[, -1]))
 		label <- tibble(
