@@ -1,5 +1,6 @@
 library(tidyverse)
 source("matrix_operations.R")
+source("regressors.R")
 
 # set parameters ----------------------------------------------------------
 
@@ -79,10 +80,10 @@ for (i in seq_along(subX_list)) {
 	Y <- subY_list[[i]]
 	binbounds <- sub_binbounds_list[[i]]
 	mzbins <- rowMeans(binbounds)
-	idx_nonzero_y <- Y[, 1] > 0
-	Y <- Y[idx_nonzero_y, , drop = FALSE]
-	X <- X[idx_nonzero_y, ]
-	mzbins <- mzbins[idx_nonzero_y]
+	# idx_nonzero_y <- Y[, 1] > 0
+	# Y <- Y[idx_nonzero_y, , drop = FALSE]
+	# X <- X[idx_nonzero_y, ]
+	# mzbins <- mzbins[idx_nonzero_y]
 
 	X_df <- as_tibble(X) %>%
 		mutate(mzbin = mzbins) %>%
@@ -113,7 +114,7 @@ for (i in seq_along(subX_list)) {
 	clustering_info <- stack(ceb) %>%
 		rename(feature = values, cluster = ind) %>%
 		mutate(feature = as.integer(feature)) %>%
-		right_join(X_df, "feature") %>%
+		right_join(X_df[c("mzbin", "feature")], "feature") %>%
 		select(mzbin, feature, cluster) %>%
 		as_tibble()
 
@@ -126,48 +127,8 @@ coefs_list <- vector("list", length(subX_list))
 for (i in seq_along(subX_list)) {
 	X <- subX_list[[i]]
 	Y <- subY_list[[i]]
-	binbounds <- sub_binbounds_list[[i]]
-	mzbins <- rowMeans(binbounds)
-	idx_nonzero_y <- Y[, 1] > 0
-	Y <- Y[idx_nonzero_y, , drop = FALSE]
-	X <- X[idx_nonzero_y, ]
-	mzbins <- mzbins[idx_nonzero_y]
-
 	clustering_info <- clustering_info_list[[i]]
-	valid_clusters <- clustering_info %>%
-		select(feature, cluster) %>%
-		distinct() %>%
-		group_by(cluster) %>%
-		summarise(n_features= n()) %>%
-		filter(n_features > 1) %>%
-		pull(cluster) %>% as.integer()
-
-	coefs <- vector("numeric", length = ncol(X))
-	for (clust in valid_clusters) {
-		idx_col <- filter(clustering_info, cluster == clust) %>% pull(feature) %>% unique()
-		idx_row <- rowSums(X[, idx_col, drop = FALSE]) > 0
-		Xc <- X[idx_row, idx_col, drop = FALSE]
-		Yc <- Y[idx_row, ,drop = FALSE]
-
-		if (nrow(Xc) < 4) next()
-
-		mdl_cv_wt <- glmnet::cv.glmnet(Xc, Yc, intercept = TRUE, lower.limits = 0,
-									   nfolds = nrow(Xc), grouped = FALSE,
-									   weights = 1 / (10 + drop(Yc)))
-
-		mdl_cv_log <- glmnet::cv.glmnet(Xc, log(Yc + 1), intercept = TRUE, lower.limits = 0,
-										nfolds = nrow(Xc), grouped = FALSE)
-
-		idx_col_sub <- predict(mdl_cv_wt, type = "coef", s = "lambda.min") %>%
-			as.vector() %>% (function(x) which(x[-1] > 0))
-
-		if (length(idx_col_sub) == 0) next()
-		mdl <- glmnet::glmnet(Xc[, idx_col_sub, drop = FALSE], Yc, lambda = 0,
-							  intercept = FALSE, lower.limits = 0)
-
-		coefs_sub <- predict(mdl, type = "coef") %>% as.vector() %>% .[-1]
-		coefs[idx_col[idx_col_sub]] <- coefs_sub
-	}
+	coefs <- regressor(X, Y, clustering_info)
 	coefs_list[[i]] <- coefs
 }
 
@@ -176,6 +137,7 @@ sub_features_list <- map2(sub_features_list, coefs_list,
 
 # regression results presentation -----------------------------------------
 
+if (!dir.exists("./regression_plots")) dir.create("./regression_plots")
 for (i in seq_along(subX_list)) {
 	X <- subX_list[[i]]
 	Y <- subY_list[[i]]
@@ -186,7 +148,7 @@ for (i in seq_along(subX_list)) {
 	X <- X[idx_nonzero_y, ]
 	mzbins <- mzbins[idx_nonzero_y]
 	features_info <- sub_features_list[[i]] %>%
-		select(meanmz, charge, coef) %>%
+		select(meanmz, charge) %>%
 		mutate(feature = row_number())
 
 	clustering_info <- clustering_info_list[[i]] %>%
@@ -245,7 +207,7 @@ for (i in seq_along(subX_list)) {
 		p1 <- tibble(mzbin = act_pred_sub[, 1], intensity = act_pred_sub[, 2], perc_err = perc_err) %>%
 			ggplot(aes(mzbin, intensity)) +
 			geom_col() +
-			geom_text(aes(label = paste0(round(perc_err, 1), "%")), vjust = -0.3, size = 1.5) +
+			geom_text(aes(label = paste0(round(perc_err, 1), "%")), vjust = -0.3, size = 3) +
 			geom_text(aes(label = label), data = label, vjust = "top", hjust = "right") +
 			coord_cartesian(ylim = ylim, expand = TRUE) +
 			labs(title = "Actual")
@@ -279,7 +241,7 @@ for (i in seq_along(subX_list)) {
 
 		p <- egg::ggarrange(p1, p2, nrow = 1)
 		plot_name <- paste0(i - 1, "_", clust, ".png")
-		ggsave(plot_name, p, width = 20, height = 10, units = "cm")
+		ggsave(plot_name, plot = p, path = "./regression_plots", width = 16, height = 8)
 		# browser()
 	}
 }
