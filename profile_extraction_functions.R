@@ -1,4 +1,5 @@
 alignment_status <- function(feat_var, feat_fix, mass_accuracy) {
+	if (feat_fix$scan %in% feat_var$scan) return(2L)
 	meanmz <- mean(feat_var$meanmz)
 	if (
 		between(feat_fix$meanmz,

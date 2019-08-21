@@ -135,7 +135,7 @@ for (i in seq_along(subX_list)) {
 	coefs_list[[i]] <- coefs
 }
 
-sub_features_list <- map2(sub_features_list_reserve, coefs_list,
+sub_features_list <- map2(sub_features_list, coefs_list,
 						  ~add_column(.x, coef = .y)) %>%
 	map2(coefs2_list, ~add_column(.x, coef2 = .y)) %>%
 	map(~ mutate(.x, anchor =  near(coef, coef2, 1e-5)))
@@ -279,6 +279,7 @@ for (feature_curr in features[3:length(features)]) {
 
 	for (i in seq_along(features_aligned)) {
 		feature <- features_aligned[[i]]
+		if (feature_curr$scan < min(feature$scan)) next()
 		alignment_status_code <- alignment_status(feature, feature_curr, mass_accuracy)
 
 		if ((alignment_status_code <= 1L) && (feature_curr$scan <= feature$reach)) {
@@ -293,6 +294,7 @@ for (feature_curr in features[3:length(features)]) {
 			}
 			add_new <- FALSE
 			features_aligned[[i]] <- feature
+			break()
 		}
 	}
 
@@ -303,10 +305,19 @@ for (feature_curr in features[3:length(features)]) {
 
 # profile extraction ------------------------------------------------------
 
-idx <-  map_int(features_aligned, ~length(.x$peak)) %>%
+features_aligned2 <- map(features_aligned, ~as_tibble(.x) %>% arrange(desc(scan)) %>%
+						  	mutate(trailing_non_anchor = as.logical(cumsum(anchor))) %>%
+						  	filter(trailing_non_anchor) %>%
+						  	select(-reach, -trailing_non_anchor) %>%
+						  	arrange(scan) %>%
+						  	as.list()
+						 )
+
+idx <-  map_int(features_aligned2, ~length(.x$peak)) %>%
 	(function(x) x > 5)
 
-features_aligned2 <- features_aligned[idx]
+features_aligned2 <- features_aligned2[idx]
+
 idx_ord <- map(features_aligned2, "meanmz") %>%
 	map_dbl(mean) %>%
 	order()
