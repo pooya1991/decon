@@ -305,7 +305,7 @@ for (feature_curr in features[3:length(features)]) {
 
 # profile extraction ------------------------------------------------------
 
-features_aligned2 <- map(features_aligned, ~as_tibble(.x) %>% arrange(desc(scan)) %>%
+profiles <- map(features_aligned, ~as_tibble(.x) %>% arrange(desc(scan)) %>%
 						  	mutate(trailing_non_anchor = as.logical(cumsum(anchor))) %>%
 						  	filter(trailing_non_anchor) %>%
 						  	select(-reach, -trailing_non_anchor) %>%
@@ -313,28 +313,42 @@ features_aligned2 <- map(features_aligned, ~as_tibble(.x) %>% arrange(desc(scan)
 						  	as.list()
 						 )
 
-idx <-  map_int(features_aligned2, ~length(.x$peak)) %>%
+idx <-  map_int(profiles, ~length(.x$peak)) %>%
 	(function(x) x > 5)
 
-features_aligned2 <- features_aligned2[idx]
+profiles <- profiles[idx]
 
-idx_ord <- map(features_aligned2, "meanmz") %>%
+idx_ord <- map(profiles, "meanmz") %>%
 	map_dbl(mean) %>%
 	order()
 
-features_aligned2 <- features_aligned2[idx_ord]
+profiles <- profiles[idx_ord]
 
-profiles_mat <- matrix(NA_real_, ncol = length(features_aligned2), nrow = length(subX_list))
-for (i in seq_along(features_aligned2)) {
-	peaks <- features_aligned2[[i]][["peak"]]
+profiles_mat <- matrix(NA_real_, ncol = length(profiles), nrow = length(subX_list))
+for (i in seq_along(profiles)) {
+	peaks <- profiles[[i]][["peak"]]
 	for (peak in peaks) {
 		profiles_mat[as.integer(peak[1]) + 1, i] <- peak[2]
 	}
 }
 
-anchors_mat <- matrix(NA_real_, ncol = length(features_aligned2), nrow = length(subX_list))
-for (i in seq_along(features_aligned2)) {
-  scans <- features_aligned2[[i]][["scan"]] + 1
-  anchors_mat[scans, i] <- features_aligned2[[i]][["anchor"]]
+# profiles representation -------------------------------------------------
 
+anchors_mat <- matrix(NA, ncol = length(profiles), nrow = length(subX_list))
+for (i in seq_along(profiles)) {
+  scans <- profiles[[i]][["scan"]] + 1
+  anchors_mat[scans, i] <- profiles[[i]][["anchor"]]
+}
+
+input <- 0.5
+while (input > 0) {
+	input <- readline(prompt="Enter profile number (Enter 0 to exit): " ) %>% as.integer()
+	if (input > 0) {
+		plot(profiles_mat[ , input],
+			 type = "l", lty = 2,
+			 xlab = "Scan", ylab = "Intensity")
+		points(profiles_mat[ , input],
+			col = c("blue", "red")[anchors_mat[, input] + 1], pch = 19, type = "b",
+		)
+	}
 }
