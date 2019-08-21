@@ -1,6 +1,7 @@
 library(tidyverse)
 source("matrix_operations.R")
 source("regressors.R")
+source("profile_extraction_functions.R")
 
 # set parameters ----------------------------------------------------------
 
@@ -134,8 +135,10 @@ for (i in seq_along(subX_list)) {
 	coefs_list[[i]] <- coefs
 }
 
-sub_features_list <- map2(sub_features_list, coefs_list,
-						  ~add_column(.x, coef = .y))
+sub_features_list <- map2(sub_features_list_reserve, coefs_list,
+						  ~add_column(.x, coef = .y)) %>%
+	map2(coefs2_list, ~add_column(.x, coef2 = .y)) %>%
+	map(~ mutate(.x, anchor =  near(coef, coef2, 1e-5)))
 
 # regression results presentation -----------------------------------------
 
@@ -257,34 +260,45 @@ for (i in seq_along(subX_list)) {
 
 # feature construction ----------------------------------------------------
 
-sub_features_list <- map(sub_features_list, filter, coef > 0) %>%
+sub_features_list <- map(sub_features_list, filter, coef2 > 0) %>%
 	map(~ mutate(.x, peak = map2(scan, coef, ~list(c(.x, .y))))) %>%
-	map(select, minmz, maxmz, meanmz, charge, isop_pattern, peak)
+	map(~ mutate(.x, peak2 = map2(scan, coef2, ~list(c(.x, .y))))) %>%
+	map(select, meanmz, charge, peak = peak2, anchor)
 
 features <- sub_features_list %>%
-	map(select, meanmz, charge, isop_pattern, peak) %>%
-	bind_rows() %>%
+	bind_rows(.id = "scan") %>%
+	mutate(scan = as.integer(scan)) %>%
+	arrange(scan, meanmz) %>%
 	pmap(list)
 
 # feature alignment -------------------------------------------------------
 
-features_aligned <- features[1]
-for (feature_curr in features[-1]) {
+features_aligned <- list(c(features[[2]], reach = features[[2]][["scan"]] + 12))
+for (feature_curr in features[3:length(features)]) {
 	add_new <- TRUE
+
 	for (i in seq_along(features_aligned)) {
 		feature <- features_aligned[[i]]
-		if (
-			feature_curr$charge == feature$charge &&
-			between(feature_curr$meanmz, feature$meanmz * (1 - mass_accuracy), feature$meanmz * (1 + mass_accuracy)) &&
-			identical(feature_curr$isop_pattern, feature$isop_pattern)
-		) {
+		alignment_status_code <- alignment_status(feature, feature_curr, mass_accuracy)
+
+		if ((alignment_status_code <= 1L) && (feature_curr$scan <= feature$reach)) {
+			feature$scan <- c(feature$scan, feature_curr$scan)
+			feature$meanmz <- c(feature$meanmz, feature_curr$meanmz)
+			feature$charge <- c(feature$charge, feature_curr$charge)
 			feature$peak <- c(feature$peak, feature_curr$peak)
+			feature$anchor <- c(feature$anchor, feature_curr$anchor)
+
+			if (alignment_status_code == 0L && feature_curr$anchor) {
+				feature$reach <- feature_curr$scan + 12L
+			}
 			add_new <- FALSE
+			features_aligned[[i]] <- feature
 		}
-		features_aligned[[i]] <- feature
 	}
 
-	if (add_new) features_aligned <- c(features_aligned, list(feature_curr))
+	if (add_new && feature_curr$anchor) {
+		features_aligned <- c(features_aligned, list(c(feature_curr, reach = feature_curr$scan + 12)))
+	}
 }
 
 # profile extraction ------------------------------------------------------
@@ -293,7 +307,8 @@ idx <-  map_int(features_aligned, ~length(.x$peak)) %>%
 	(function(x) x > 5)
 
 features_aligned2 <- features_aligned[idx]
-idx_ord <- map_dbl(features_aligned2, "meanmz") %>%
+idx_ord <- map(features_aligned2, "meanmz") %>%
+	map_dbl(mean) %>%
 	order()
 
 features_aligned2 <- features_aligned2[idx_ord]
