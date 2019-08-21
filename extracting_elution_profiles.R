@@ -331,3 +331,10 @@ for (i in seq_along(features_aligned2)) {
 		profiles_mat[as.integer(peak[1]) + 1, i] <- peak[2]
 	}
 }
+
+anchors_mat <- matrix(NA_real_, ncol = length(features_aligned2), nrow = length(subX_list))
+for (i in seq_along(features_aligned2)) {
+  scans <- features_aligned2[[i]][["scan"]] + 1
+  anchors_mat[scans, i] <- features_aligned2[[i]][["anchor"]]
+
+}
