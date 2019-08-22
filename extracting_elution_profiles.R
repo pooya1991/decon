@@ -14,15 +14,15 @@ mass_accuracy <- 6e-6
 # read matrices from file -------------------------------------------------
 
 xfiles <- list.files(dir_data) %>%
-	stringr::str_subset("xdecoy\\.txt")
+	stringr::str_subset("x\\.txt")
 
 idx_ordered <- stringr::str_extract(xfiles, "^\\d+") %>%
 	as.integer() %>%
 	order()
 
 xfiles <- xfiles[idx_ordered]
-yfiles <- stringr::str_replace(xfiles, "xdecoy", "y")
-annfiles <- stringr::str_replace(xfiles, "xdecoy", "annfile")
+yfiles <- stringr::str_replace(xfiles, "x", "y")
+annfiles <- stringr::str_replace(xfiles, "x", "annfile")
 
 input_files <- purrr::pmap(list(xfiles, yfiles, annfiles), c) %>%
 	purrr::map(~ paste0(dir_data, .x))
@@ -42,7 +42,6 @@ for (i in seq_along(input_files)) {
 	unique_scans <- unique(scans)
 	binbounds <- get_binbounds(x)
 	X <- sparse_to_regular(x)
-	X <- X[, 1:(ncol(X) / 2)]
 	Y <- sparse_to_regular(y)
 	subX <- vector("list", length(unique_scans)) %>% set_names(unique_scans)
 	subY <- vector("list", length(unique_scans)) %>% set_names(unique_scans)
@@ -197,11 +196,6 @@ for (i in seq_along(subX_list)) {
 		mape_sub <- Metrics::mape(act_pred_sub[ ,2], act_pred_sub[, 3])
 		perc_err = ((act_pred_sub[, 2] - act_pred_sub[, 3]) / act_pred_sub[, 2]) * 100
 
-		# legend_data <- features_info %>%
-		# 	left_join(feature_cluster, "feature") %>%
-		# 	filter(cluster == clust) %>%
-		# 	select(feature, meanmz, charge) %>% distinct()
-
 		legend_data <- filter(features_info, feature %in% unique(deconv_long_sub$feature)) %>%
 			select(feature, meanmz, charge)
 
@@ -279,7 +273,7 @@ for (feature_curr in features[3:length(features)]) {
 
 	for (i in seq_along(features_aligned)) {
 		feature <- features_aligned[[i]]
-		if (feature_curr$scan < min(feature$scan)) next()
+		if (feature_curr$scan <= max(feature$scan)) next()
 		alignment_status_code <- alignment_status(feature, feature_curr, mass_accuracy)
 
 		if ((alignment_status_code <= 1L) && (feature_curr$scan <= feature$reach)) {
