@@ -3,6 +3,8 @@ execfile('peakclusterforbinning.py')
 execfile('make_averagine_models.py')
 
 mass_accuracy = 6e-06
+maxcharge = 6
+
 def get_ix(n):
 	return -1*n-1
 def get_n(ix):
@@ -193,7 +195,6 @@ while t < len(justpeaks):
 
 		features = [] # each element is a tuple. The tuple is (index of peakcluster correspond to the monoisotope, charge)
 		N = len(clusts) 
-		maxcharge = 4 # consider charges 4, 3, 2, and 1
 
 		tol = 0.01
 		if toprint:	
@@ -299,5 +300,6 @@ while t < len(justpeaks):
 			ov.output_xy( x, [features[n] for n in to_preserve], cids, binbounds,t )
 		t += 1
 	ov.finish()		
-		
+
+print t
 
