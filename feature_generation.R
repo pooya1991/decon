@@ -100,13 +100,4 @@ clusters_list <- map(peaks_dfs, peaklist_to_clusters, mass_accuracy, .sort = TRU
 features_list <- map(clusters_list, clusters_to_features, maxcharge, mass_accuracy)
 
 
-df %>% mutate(cluster = mdl$cluster) %>%
-	select(mz, cluster) %>%
-	group_by(cluster) %>%
-	nest(.key = "mz") %>%
-	mutate(mz = map(mz, 1)) %>%
-	mutate(minmz = map_dbl(mz, min),
-		   maxmz = map_dbl(mz, max)) %>%
-	select(minmz, maxmz) %>%
-	write_csv("dbscan_mz_range.csv")
 

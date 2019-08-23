@@ -1,105 +1,41 @@
-get_elemental_composition <- function(avgmz, charge, masses, amass, averagine) {
-    residuemass <- (avgmz - masses["H"]) * charge
-    aunits <- residuemass / amass
-    acomp <- as.integer(round(averagine * aunits))
-    names(acomp) <- names(masses)
-    averagine_mass <- sum(acomp * masses)
-    numH <- as.integer((residuemass - averagine_mass) / masses["H"])
-    acomp["H"] <- acomp["H"] + numH
-    averagine_mass <- averagine_mass + numH * masses["H"]
-    return(list(acomp, averagine_mass))
+get_elemental_composition <- function(features) {
+    masses <- c(C = 12, H = 1.0078246, N = 14.0030732, O = 15.9949141, S = 31.972072)
+    # Elemental composition of the average amino acid resideu
+    averagine <- c(C = 4.9384, H = 7.7583, N = 1.3577, O = 1.4773, S = 0.0417)
+    # Mass of monoisotopic averagine residue
+    amass <- sum(masses * averagine)
+    bind_rows(features) %>%
+        mutate(meanmz = (minmz + maxmz) / 2,
+               residumass = (meanmz - masses["H"]) * charge,
+               aunits = residumass / amass,
+               acomp = map(aunits, ~ averagine * .x)
+        ) %>% pull(acomp) %>%
+        map(~as.integer(round(.x))) %>%
+        map(set_names, names(masses))
 }
 
-normalize_peaks <- function(peaks) {
-    scalars <- purrr::map(peaks, ~purrr::map_dbl(.x, 2)) %>%
-        purrr::map_dbl(function(x) 1 / sqrt(sum(x ^ 2)))
-    purrr::map2(peaks, scalars, ~purrr::map(.x, function(x) x * c(1, .y)))
-}
+run_computems1_on_features <- function(features) {
+    comp <- get_elemental_composition(features)
+    comp_str <- map_chr(comp, ~paste0(names(.x), .x, collapse = "")) %>%
+        paste(map_chr(features, "charge"), sep = "\t")
 
-run_computems1_on_features <- function(featureinfo, d, ffile, sfile, ...) {
-    to_print <- TRUE
-    ffile <- paste0(d, ffile)
-    sfile <- paste0(d, sfile)
-    submitted <- vector("list", length(featureinfo))
-    formulanum <- -1
-    duplicates <- 0
-    formulas <- character()
-    compstring <- character(length(featureinfo))
-    # fout <- file(ffile, open = "w", raw = TRUE)
+    ffile <- tempfile()
+    writeLines(comp_str, ffile)
+    sfile <- system(paste("./ComputeMS1", ffile), intern = TRUE)
 
-    i <- 1
-    for (vec in featureinfo) {
-        n <- vec[1]; charge <- vec[2]; mz1 <- vec[3]; mz2 <- vec[4]
-        smz <- (mz1 + mz2) / 2
-        comp_mass <- get_elemental_composition(smz, charge, ...)
-        comp <- comp_mass[[1]]
-        mass <- comp_mass[[2]]
-        compstring[i] <- paste0(names(comp), comp, collapse = "") %>%
-            paste0("\t", charge)
+    mass_mz <- str_subset(sfile, "^Average Integer") %>%
+        stringr::str_split(":|,") %>%
+        map(`[`, c(2, 4)) %>%
+        do.call(what = rbind) %>%
+        apply(2, as.numeric)
 
-        if (!compstring[i] %in% formulas) {
-            formulanum <- formulanum + 1
-        } else {
-            duplicates <- duplicates + 1
-        }
+    charges <- (mass_mz[, 1] / mass_mz[, 2]) %>%
+        round() %>% as.integer()
 
-        submitted[[i]] <- c(smz, charge, formulanum)
-        i <- i + 1
-    }
+    sfile <- str_subset(sfile, "^(Sequence|\\d+)")
+    split_sfile <- str_detect(sfile, "^Sequence") %>% cumsum()
+    peaks_dfs <- split(sfile, split_sfile) %>%
+        map(read_delim, "\t", skip = 1, col_names = c("mz", "intensity"), col_types = "dd")
 
-    write(compstring, file = ffile, sep = "\n", append = FALSE)
-    formulanum <- formulanum + 1
-
-    if (toprint) {
-        cat("Submitted", formulanum, "\n")
-        cat("Duplicates", duplicates, "\n")
-        cat("Running computems1 command to", sfile, "\n")
-    }
-
-    sfile_entry <- system(paste("./ComputeMS1.exe", ffile), intern = TRUE)
-    write(sfile_entry, sfile, append = FALSE)
-    # system(paste0("cmd /c echo|set /p=", sfile_entry, ">>", sfile))
-
-    fin <- readLines(sfile)
-    charges <- integer()
-    peaks <- vector("list", formulanum)
-    i <- 0
-    isvals <- FALSE
-
-    for (line in fin) {
-        if (str_detect(line, "successful")) {
-            isvals <- FALSE
-            next()
-        }
-
-        if (str_detect(line, "Sequence")) {
-            i <- i + 1
-        }
-
-        if (str_detect(line, "Average Integer")) {
-            mass <- as.numeric(str_extract(line, "(?<=MW:\\s).*(?=,)"))
-            mz <- as.numeric(str_extract(line, "(?<=m/z:\\s).*"))
-            charges <- c(charges, as.integer(round(mass / mz)))
-        }
-
-        if (str_detect(line, "Calculation")) {
-            isvals <- TRUE
-            next()
-        }
-
-        if (isvals) {
-            tokens <- str_split(line, "\t")[[1]]
-            mz <- as.numeric(tokens[1])
-            intensity <- as.numeric(tokens[2])
-            if (intensity < 0.1) {
-                next()
-            }
-            peaks[[i]] <- c(peaks[[i]], list(c(mz, intensity)))
-        }
-    }
-    peaks <- normalize_peaks(peaks)
-    if (toprint) {
-        cat("Specfile:", sfile, "lenpeaks:", length(peaks), "\n")
-    }
-    return(peaks)
+    map(peaks_dfs, ~mutate(.x, intensity = intensity / sqrt(sum(intensity ^ 2))))
 }
