@@ -35,7 +35,10 @@ run_computems1_on_features <- function(features) {
     sfile <- str_subset(sfile, "^(Sequence|\\d+)")
     split_sfile <- str_detect(sfile, "^Sequence") %>% cumsum()
     peaks_dfs <- split(sfile, split_sfile) %>%
-        map(read_delim, "\t", skip = 1, col_names = c("mz", "intensity"), col_types = "dd")
+        map(read_delim, "\t", skip = 1, col_names = c("mz", "intensity"), col_types = "dd") %>%
+        map(filter, intensity >= 0.1) %>%
+        map2(charges, ~add_column(.x, charge = .y))
 
-    map(peaks_dfs, ~mutate(.x, intensity = intensity / sqrt(sum(intensity ^ 2))))
+    map(peaks_dfs, ~mutate(.x, intensity = intensity / sqrt(sum(intensity ^ 2)))) %>%
+        map(pmap, list)
 }
