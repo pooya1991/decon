@@ -4,7 +4,7 @@ get_elemental_composition <- function(features) {
     averagine <- c(C = 4.9384, H = 7.7583, N = 1.3577, O = 1.4773, S = 0.0417)
     # Mass of monoisotopic averagine residue
     amass <- sum(masses * averagine)
-    bind_rows(features) %>%
+    features %>%
         mutate(meanmz = (minmz + maxmz) / 2,
                residumass = (meanmz - masses["H"]) * charge,
                aunits = residumass / amass,
@@ -17,13 +17,14 @@ get_elemental_composition <- function(features) {
 run_computems1_on_features <- function(features) {
     comp <- get_elemental_composition(features)
     comp_str <- map_chr(comp, ~paste0(names(.x), .x, collapse = "")) %>%
-        paste(map_chr(features, "charge"), sep = "\t")
+        paste(features$charge, sep = "\t")
 
     ffile <- tempfile()
     writeLines(comp_str, ffile)
-    sfile <- system(paste("./ComputeMS1", ffile), intern = TRUE)
+    computems1_file <- ifelse(.Platform$OS.type == "windows", "./ComputeMS1.exe", "./ComputeMS1")
+    sfile <- system(paste(computems1_file, ffile), intern = TRUE)
 
-    mass_mz <- str_subset(sfile, "^Average Integer") %>%
+    mass_mz <- stringr::str_subset(sfile, "^Average Integer") %>%
         stringr::str_split(":|,") %>%
         map(`[`, c(2, 4)) %>%
         do.call(what = rbind) %>%
@@ -32,13 +33,12 @@ run_computems1_on_features <- function(features) {
     charges <- (mass_mz[, 1] / mass_mz[, 2]) %>%
         round() %>% as.integer()
 
-    sfile <- str_subset(sfile, "^(Sequence|\\d+)")
-    split_sfile <- str_detect(sfile, "^Sequence") %>% cumsum()
+    sfile <- stringr::str_subset(sfile, "^(Sequence|\\d+)")
+    split_sfile <- stringr::str_detect(sfile, "^Sequence") %>% cumsum()
     peaks_dfs <- split(sfile, split_sfile) %>%
-        map(read_delim, "\t", skip = 1, col_names = c("mz", "intensity"), col_types = "dd") %>%
+        map(readr::read_delim, "\t", skip = 1, col_names = c("mz", "intensity"), col_types = "dd") %>%
         map(filter, intensity >= 0.1) %>%
-        map2(charges, ~add_column(.x, charge = .y))
+        map2(charges, ~ tibble::add_column(.x, charge = .y))
 
-    map(peaks_dfs, ~mutate(.x, intensity = intensity / sqrt(sum(intensity ^ 2)))) %>%
-        map(pmap, list)
+    map(peaks_dfs, ~ mutate(.x, intensity = intensity / sqrt(sum(intensity ^ 2))))
 }
